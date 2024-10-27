@@ -1,0 +1,70 @@
+FROM alpine:3.20.3 AS base
+
+ARG USER=devuser
+ARG GROUP=devgroup
+ARG UID=1000
+ARG GID=$UID
+ARG USER_FOLDER=/home/${USER}
+ARG WORK_FOLDER=${USER_FOLDER}/workspace
+
+# find packages here: https://pkgs.alpinelinux.org/packages?name=&branch=v3.20&repo=&arch=x86_64&origin=&flagged=&maintainer=
+
+ARG GCC_VERSION=14.1.0-r1
+ARG BINUTIL_VERSION=2.42-r0
+ARG AVR_LIBC_VERSION=2.1.0-r5
+ARG AVRDUDE_VERSION=7.3-r1
+ARG CLANG_VERSION=18.1.6-r0
+
+# Installing basic tools
+RUN apk update && apk --no-cache add \
+    bash \
+    git \
+    openssh \
+    make \
+    bash \
+    sudo \
+    nano \
+    vim \
+    wget \
+    gcc \
+    g++ \
+    gdb \
+    musl-dev \
+    libc-dev \
+    libstdc++-dev \
+    libc6-compat \
+    gcc-avr=${GCC_VERSION} \
+    binutils-avr=${BINUTIL_VERSION} \
+    avr-libc=${AVR_LIBC_VERSION} \
+    avrdude=${AVRDUDE_VERSION} \
+    clang18-extra-tools=${CLANG_VERSION}
+
+# future commands are run via bash (instead of sh)
+SHELL ["/bin/bash", "-c"]
+
+########
+# final
+########
+FROM base AS final
+
+# create a group and user
+#--disabled-password prevents prompt for a password
+#--gecos "" circumvents the prompt for "Full Name"
+#--home "$(pwd)" sets the user's home.
+#--no-create-home prevents cruft getting copied into the directory from /etc/skel
+RUN addgroup -g ${GID} -S ${GROUP}
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "${HOME}" \
+    --ingroup "${GROUP}" \
+    --uid "${UID}" \
+    "${USER}"
+
+RUN mkdir -p ${WORK_FOLDER} && \
+    chown -R ${USER}:${GROUP} ${USER_FOLDER} ${WORK_FOLDER}
+
+# switch to normal user
+USER ${USER}
+
+WORKDIR ${WORK_FOLDER}

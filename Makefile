@@ -1,5 +1,5 @@
-DOCKER_FILE   = Dockerfile
 REGISTRY      = thucon/avr-gcc
+VERSION       = 1.0
 
 .PHONY: clean all
 
@@ -9,17 +9,19 @@ REGISTRY      = thucon/avr-gcc
 all: build
 
 build:
-	docker build --no-cache -t $(REGISTRY) -f $(DOCKER_FILE) .
+	docker build --target final -t $(REGISTRY):ubuntu -f ${VERSION}/Dockerfile.ubuntu .
+	docker build --target final -t $(REGISTRY):arch -f ${VERSION}/Dockerfile.arch .
+	docker build --target final -t $(REGISTRY):alpine -f ${VERSION}/Dockerfile.alpine .
 
 clean:
-	docker rmi -f $(REGISTRY)
+	docker rmi -f $(REGISTRY):ubuntu $(REGISTRY):$(VERSION)-ubuntu
+	docker rmi -f $(REGISTRY):arch $(REGISTRY):$(VERSION)-arch
+	docker rmi -f $(REGISTRY):alpine $(REGISTRY):$(VERSION)-alpine
 
 push:
-	docker push $(REGISTRY)
-
-run:
-	docker run -it --rm $(REGISTRY) bash
-
-logs:
-	docker logs $(CONTAINER_NAME) -f
+	docker image tag $(REGISTRY):ubuntu $(REGISTRY):$(VERSION)-ubuntu
+	docker image tag $(REGISTRY):arch $(REGISTRY):$(VERSION)-arch
+	docker image tag $(REGISTRY):alpine $(REGISTRY):$(VERSION)-alpine
+	docker image tag $(REGISTRY):arch $(REGISTRY):latest
+	docker image push --all-tags $(REGISTRY)
 
