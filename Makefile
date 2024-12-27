@@ -1,5 +1,5 @@
 REGISTRY      = thucon/avr-gcc
-VERSION       = 1.1
+VERSION       = 1.2
 
 .PHONY: clean all
 
@@ -10,8 +10,8 @@ all: build
 
 build:
 	docker build --target final -t $(REGISTRY):ubuntu -f ${VERSION}/Dockerfile.ubuntu .
-	docker build --target final -t $(REGISTRY):arch -f ${VERSION}/Dockerfile.arch .
-	docker build --target final -t $(REGISTRY):alpine -f ${VERSION}/Dockerfile.alpine .
+#	docker build --target final -t $(REGISTRY):arch -f ${VERSION}/Dockerfile.arch .
+#	docker build --target final -t $(REGISTRY):alpine -f ${VERSION}/Dockerfile.alpine .
 
 clean:
 	docker rmi -f $(REGISTRY):ubuntu $(REGISTRY):$(VERSION)-ubuntu
