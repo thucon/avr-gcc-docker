@@ -4,8 +4,14 @@ This repository has the `Dockerfile` used to build the container image located h
 
 # version history
 
-* 1.0:
-  * init
+* 1.3:
+  * adding perf and improving valgrind
+
+* 1.2:
+  * adding valgrind
 
 * 1.1:
   * adding lcov
+
+* 1.0:
+  * init
