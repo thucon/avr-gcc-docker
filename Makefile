@@ -1,5 +1,5 @@
 REGISTRY      = thucon/avr-gcc
-VERSION       = 1.3
+VERSION       = 1.4
 
 .PHONY: clean all
 

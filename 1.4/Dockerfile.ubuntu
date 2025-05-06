@@ -1,0 +1,286 @@
+FROM ubuntu:22.04 AS base
+
+ARG USER=devuser
+ARG GROUP=devgroup
+ARG UID=1000
+ARG GID=$UID
+ARG USER_FOLDER=/home/${USER}
+ARG WORK_FOLDER=${USER_FOLDER}/workspace
+ARG DEBIAN_FRONTEND=noninteractive
+
+ARG WORK_DIR=/work
+
+ARG SOURCES_DIR=${WORK_DIR}/sources
+ARG BUILD_DIR=${WORK_DIR}/build
+
+#ARG PREFIX=/usr/local
+#ARG PREFIX=/usr
+ARG PREFIX=/opt
+
+ARG BINUTIL_VERSION=2.43
+ARG GCC_VERSION=14.2.0
+ARG AVR_LIBC_VERSION=2.2.1
+ARG AVRDUDE_VERSION=8.0
+ARG GLIBC_VERSION=2.40
+ARG LCOV_VERSION=2.2
+ARG VALGRIND_VERSION=3.24.0
+
+ENV PATH=$PATH:$PREFIX/bin
+
+# Installing basic tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake flex bison libelf-dev libusb-1.0-0-dev libusb-dev libhidapi-dev libftdi1-dev libreadline-dev libserialport-dev \
+    texinfo \
+    make \
+    file \
+    gdb \
+    git \
+    libc6-dbg \
+    openssh-client \
+    nano \
+    bash \
+    bash-completion \
+    tar \
+    bzip2 \
+    locales \
+    ca-certificates \
+    sudo \
+    vim \
+    curl \
+    wget \
+    linux-tools-common \
+    linux-tools-generic \
+    perl \
+    libpath-tiny-perl \
+    libcapture-tiny-perl \
+    libdatetime-perl \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python-is-python3 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# future commands are run via bash (instead of sh)
+SHELL ["/bin/bash", "-c"]
+
+# create locales
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+
+# install perl module
+RUN yes | cpan Date::Parse
+
+########
+# builder (generic)
+########
+FROM base AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gawk sed automake autotools-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+########
+# builder (avr)
+########
+FROM builder AS builder-avr
+
+# link: https://avrdudes.github.io/avr-libc/avr-libc-user-manual/install_tools.html
+
+RUN mkdir -p ${SOURCES_DIR} ${BUILD_DIR}
+
+# get sources
+WORKDIR ${SOURCES_DIR}
+
+ADD https://sourceware.org/pub/binutils/releases/binutils-${BINUTIL_VERSION}.tar.bz2 \
+    https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz \
+    https://github.com/avrdudes/avr-libc/releases/download/avr-libc-${AVR_LIBC_VERSION//./_}-release/avr-libc-${AVR_LIBC_VERSION}.tar.bz2 \
+    https://github.com/avrdudes/avrdude/releases/download/v${AVRDUDE_VERSION}/avrdude-${AVRDUDE_VERSION}.tar.gz \
+    https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz \
+    https://sourceware.org/pub/valgrind/valgrind-${VALGRIND_VERSION}.tar.bz2 \
+    ${SOURCES_DIR}
+
+RUN tar xfj binutils-${BINUTIL_VERSION}.tar.bz2 && \
+    tar xf gcc-${GCC_VERSION}.tar.xz && \
+    tar xfj avr-libc-${AVR_LIBC_VERSION}.tar.bz2 && \
+    tar xf avrdude-${AVRDUDE_VERSION}.tar.gz && \
+    tar xf lcov-${LCOV_VERSION}.tar.gz && \
+    tar xfj valgrind-${VALGRIND_VERSION}.tar.bz2
+
+# build sources
+WORKDIR ${BUILD_DIR}
+
+## -- avr binutils --
+RUN cd ${BUILD_DIR} && \
+    mkdir -p binutils-avr && \
+    cd binutils-avr && \
+    ${SOURCES_DIR}/binutils-${BINUTIL_VERSION}/configure --prefix=$PREFIX --target=avr \
+    --disable-nls --disable-sim --disable-werror && \
+    make -j$(nproc --ignore=1) && \
+    make install
+
+    #--disable-nls --disable-sim --disable-gdb --disable-werror && \
+
+## -- avr gcc ---
+RUN cd ${SOURCES_DIR}/gcc-${GCC_VERSION} && \
+    ./contrib/download_prerequisites && \
+    cd ${BUILD_DIR} && \
+    mkdir -p gcc-avr && \
+    cd gcc-avr && \
+    ${SOURCES_DIR}/gcc-${GCC_VERSION}/configure --prefix=$PREFIX --target=avr --enable-languages=c,c++ \
+    --disable-nls --disable-libssp --disable-libcc1 \
+    --with-gnu-as --with-gnu-ld --with-dwarf2 && \
+    make -j$(nproc --ignore=1) && \
+    make install install-strip
+    # make install
+
+## -- avr libc --
+RUN cd ${BUILD_DIR} && \
+    mkdir -p avr-libc && \
+    cd avr-libc && \
+    ${SOURCES_DIR}/avr-libc-${AVR_LIBC_VERSION}/configure --prefix=$PREFIX \
+    --build=x86_64-pc-linux-gnu --host=avr && \
+    make -j$(nproc --ignore=1) && \
+    make install
+
+## -- avrdude --
+RUN cd ${SOURCES_DIR} && \
+    cd avrdude-${AVRDUDE_VERSION} && \
+    cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo -D HAVE_LINUXGPIO=1 -D HAVE_LINUXSPI=1 -D CMAKE_INSTALL_PREFIX=${PREFIX} -B build_linux && \
+    cmake --build build_linux && \
+    cmake --build build_linux --target install
+
+RUN rm -rf ${SOURCES_DIR} ${BUILD_DIR}
+
+########
+# builder (gcc)
+########
+FROM builder AS builder-gcc
+
+# get sources
+WORKDIR ${SOURCES_DIR}
+
+ADD https://sourceware.org/pub/binutils/releases/binutils-${BINUTIL_VERSION}.tar.bz2 \
+    https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz \
+    https://mirrors.dotsrc.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.xz \
+    ${SOURCES_DIR}
+
+RUN tar xfj binutils-${BINUTIL_VERSION}.tar.bz2 && \
+    tar xf gcc-${GCC_VERSION}.tar.xz && \
+    tar xf glibc-${GLIBC_VERSION}.tar.xz
+
+# build sources
+WORKDIR ${BUILD_DIR}
+
+# -- binutils --
+# https://soufianebouchaa.medium.com/how-to-compile-binutils-on-ubuntu-debian-ec268674b759
+# https://www.linuxfromscratch.org/lfs/view/9.1/chapter06/binutils.html
+RUN cd ${BUILD_DIR} && \
+    mkdir -p binutils && \
+    cd binutils && \
+    ${SOURCES_DIR}/binutils-${BINUTIL_VERSION}/configure --prefix=$PREFIX && \
+    make -j$(nproc --ignore=1) && \
+    make install
+
+    #--disable-nls --disable-sim --disable-gdb --disable-werror && \
+
+## -- gcc ---
+# https://gcc.gnu.org/install/configure.html
+RUN cd ${SOURCES_DIR}/gcc-${GCC_VERSION} && \
+    ./contrib/download_prerequisites && \
+    cd ${BUILD_DIR} && \
+    mkdir -p gcc && \
+    cd gcc && \
+    ${SOURCES_DIR}/gcc-${GCC_VERSION}/configure --prefix=$PREFIX \
+    --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu \
+    --enable-checking=release --enable-languages=c,c++ --disable-multilib && \
+    make -j$(nproc --ignore=1) && \
+    make install
+    #make install install-strip
+
+## -- glibc --
+# https://github.com/jueve/build-glibc?tab=readme-ov-file
+RUN cd ${BUILD_DIR} && \
+    mkdir -p glibc && \
+    cd glibc && \
+    ${SOURCES_DIR}/glibc-${GLIBC_VERSION}/configure --prefix=$PREFIX \
+    --host=x86_64-linux-gnu --build=x86_64-linux-gnu --enable-debug \
+    CC="gcc -m64" CXX="g++ -m64" CFLAGS="-O2 -g" CXXFLAGS="-O2 -g" && \
+    make -j$(nproc --ignore=1) && \
+    make install
+
+RUN rm -rf ${SOURCES_DIR} ${BUILD_DIR}
+
+########
+# builder (avr)
+########
+FROM builder AS builder-misc
+
+RUN mkdir -p ${SOURCES_DIR} ${BUILD_DIR}
+
+# get sources
+WORKDIR ${SOURCES_DIR}
+
+ADD https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz \
+    https://sourceware.org/pub/valgrind/valgrind-${VALGRIND_VERSION}.tar.bz2 \
+    ${SOURCES_DIR}
+
+RUN tar xf lcov-${LCOV_VERSION}.tar.gz && \
+    tar xfj valgrind-${VALGRIND_VERSION}.tar.bz2
+
+# build sources
+WORKDIR ${BUILD_DIR}
+
+## -- valgrind --
+RUN cd ${SOURCES_DIR}/valgrind-${VALGRIND_VERSION} && \
+    ./autogen.sh && \
+    cd ${BUILD_DIR} && \
+    mkdir -p valgrind && \
+    cd valgrind && \
+    ${SOURCES_DIR}/valgrind-${VALGRIND_VERSION}/configure --prefix=$PREFIX && \
+    make -j$(nproc --ignore=1) && \
+    make install
+
+## -- lcov --
+RUN cd ${BUILD_DIR} && \
+    cp -rf ${SOURCES_DIR}/lcov-${LCOV_VERSION} lcov && \
+    cd lcov && make install PREFIX=$PREFIX
+
+RUN rm -rf ${SOURCES_DIR} ${BUILD_DIR}
+
+########
+# final
+########
+FROM base AS final
+
+COPY --from=builder-avr ${PREFIX} ${PREFIX}
+COPY --from=builder-gcc ${PREFIX} ${PREFIX}
+COPY --from=builder-misc ${PREFIX} ${PREFIX}
+
+# set libraries (NOTE! don't add /opt/lib as this will override system libc!)
+#RUN echo "/opt/lib" >> /etc/ld.so.conf.d/opt_lib.conf && \
+#    echo "/opt/lib64" >> /etc/ld.so.conf.d/opt_lib.conf && \
+#    ldconfig
+RUN echo "/opt/lib64" >> /etc/ld.so.conf.d/opt_lib.conf && \
+    ldconfig
+
+# clang-format-18
+RUN ( wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc ) && \
+echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" >> /etc/apt/sources.list && \
+echo "deb-src http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" >> /etc/apt/sources.list && \
+apt-get update && apt-get install -y --no-install-recommends \
+clang-format-18 clang-tidy-18 \
+&& apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/clang-format-18 /usr/bin/clang-format && \
+    ln -s /usr/bin/clang-tidy-18 /usr/bin/clang-tidy
+
+# create a non-root user and give access to necessary folders
+RUN addgroup --gid ${GID} ${GROUP} && \
+    useradd -r -l -u ${UID} -g ${GID} -m -d ${USER_FOLDER} -s /bin/bash ${USER}
+
+RUN mkdir -p ${WORK_FOLDER} && \
+    chown -R ${USER}:${GROUP} ${USER_FOLDER} ${WORK_FOLDER}
+
+# switch to normal user
+USER ${USER}
+
+WORKDIR ${WORK_FOLDER}

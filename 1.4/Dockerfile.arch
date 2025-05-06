@@ -1,0 +1,104 @@
+FROM archlinux:base-devel-20241013.0.269705 AS base
+
+ARG USER=devuser
+ARG GROUP=devgroup
+ARG UID=1000
+ARG GID=$UID
+ARG USER_FOLDER=/home/${USER}
+ARG WORK_FOLDER=${USER_FOLDER}/workspace
+
+ARG DOWNLOAD_FOLDER=/download
+
+# NOTE!
+# - guile2 is needed for avr-gdb
+ARG LLVM_VERSION=18.1.8-4
+ARG LLVM_LIBS_VERSION=${LLVM_VERSION}
+ARG CLANG_VERSION=${LLVM_VERSION}
+ARG GLIBC_VERSION=2.41+r9+ga900dbaf70f0-1
+ARG GDB_VERSION=16.2-1
+ARG LIBCPP=19.1.7-1
+ARG DEBUGINFOD_VERSION=0.192-4
+# ICU is needed by GDB
+ARG ICU_VERSION=76.1-1
+ARG GUILE2_VERSION=2.0.14-6
+ARG LCOV_VERSION=2.2-1
+ARG VALGRIND_VERSION=3.24.0-1
+
+ARG AVR_BINUTIL_VERSION=2.43-1
+ARG AVR_GCC_VERSION=14.1.0-1
+ARG AVR_GDB_VERSION=${GDB_VERSION}
+ARG AVR_LIBC_VERSION=2.2.1-1
+ARG AVRDUDE_VERSION=1:8.0-1
+
+# important for valgrind debuginfod
+ENV DEBUGINFOD_URLS=https://debuginfod.archlinux.org
+
+FROM base AS builder
+
+# If you need to install a specific version of a package in Arch, it’s a fairly 
+# easy process;
+# 
+# 1. Go to https://archive.archlinux.org/packages and locate the package/version 
+#    that you would like to install and download it
+# 2. Open a terminal and enter the command like this:
+#       sudo pacman -U /path/to/download/filename.pkg.tar.zst
+
+RUN pacman -Sy --noconfirm wget
+
+RUN mkdir -p ${DOWNLOAD_FOLDER}
+
+ADD https://archive.archlinux.org/packages/a/avr-binutils/avr-binutils-${AVR_BINUTIL_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/a/avr-gcc/avr-gcc-${AVR_GCC_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/a/avr-gdb/avr-gdb-${AVR_GDB_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/a/avr-libc/avr-libc-${AVR_LIBC_VERSION}-any.pkg.tar.zst \
+    https://archive.archlinux.org/packages/a/avrdude/avrdude-${AVRDUDE_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/l/llvm/llvm-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/l/llvm-libs/llvm-libs-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/c/clang/clang-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/g/glibc/glibc-${GLIBC_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/g/gdb/gdb-${GDB_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/l/libc%2B%2B/libc%2B%2B-${LIBCPP}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/d/debuginfod/debuginfod-${DEBUGINFOD_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/g/guile2.0/guile2.0-${GUILE2_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/i/icu/icu-${ICU_VERSION}-x86_64.pkg.tar.zst \
+    https://archive.archlinux.org/packages/l/lcov/lcov-${LCOV_VERSION}-any.pkg.tar.zst \
+    https://archive.archlinux.org/packages/v/valgrind/valgrind-${VALGRIND_VERSION}-x86_64.pkg.tar.zst \
+    ${DOWNLOAD_FOLDER}
+
+WORKDIR ${DOWNLOAD_FOLDER}
+
+RUN pacman --noconfirm -U ${DOWNLOAD_FOLDER}/avr-binutils-${AVR_BINUTIL_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/avr-gcc-${AVR_GCC_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/avr-gdb-${AVR_GDB_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/avr-libc-${AVR_LIBC_VERSION}-any.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/avrdude-${AVRDUDE_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/llvm-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/llvm-libs-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/clang-${LLVM_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/glibc-${GLIBC_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/gdb-${GDB_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/libc++-${LIBCPP}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/debuginfod-${DEBUGINFOD_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/guile2.0-${GUILE2_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/icu-${ICU_VERSION}-x86_64.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/lcov-${LCOV_VERSION}-any.pkg.tar.zst \
+                          ${DOWNLOAD_FOLDER}/valgrind-${VALGRIND_VERSION}-x86_64.pkg.tar.zst
+
+RUN rm -rf ${DOWNLOAD_FOLDER}
+
+FROM base AS final
+
+RUN pacman -Sy --noconfirm git vim nano less sudo openssh gdb picocom perf
+
+COPY --from=builder /usr /usr
+COPY --from=builder /etc /etc
+
+# Add user, create necessary folders, and set permissions
+RUN groupadd --gid ${GID} ${GROUP} && \
+    useradd -r -l -u ${UID} -g ${GID} -m -d ${USER_FOLDER} -s /bin/bash ${USER} && \
+    mkdir -p ${WORK_FOLDER} && \
+    chown -R ${USER}:${GROUP} ${USER_FOLDER}
+
+USER ${USER}
+
+WORKDIR ${WORK_FOLDER}
