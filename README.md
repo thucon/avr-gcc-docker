@@ -4,6 +4,9 @@ This repository has the `Dockerfile` used to build the container image located h
 
 # version history
 
+* 1.4:
+  * adding lsusb and lspci commands
+
 * 1.3:
   * adding perf and improving valgrind
 

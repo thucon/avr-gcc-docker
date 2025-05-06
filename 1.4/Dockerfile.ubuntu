@@ -36,6 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gdb \
     git \
     libc6-dbg \
+    usbutils \
+    pciutils \
+    nodejs \
+    npm \
     openssh-client \
     nano \
     bash \

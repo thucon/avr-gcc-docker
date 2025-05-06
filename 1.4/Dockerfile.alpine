@@ -36,6 +36,10 @@ RUN apk update && apk --no-cache add \
     gdb \
     gzip \
     perf \
+    usbutils \
+    pciutils \
+    nodejs \
+    npm \
     musl-dev \
     libc-dev \
     libstdc++-dev \
